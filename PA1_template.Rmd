@@ -8,18 +8,183 @@ output:
 
 ## Loading and preprocessing the data
 
+###First load all necessary libraries
+```{r}
+library(data.table)
+library(lubridate)
+library(ggplot2)
+library(RColorBrewer)
+library(knitr)
+```
+
+###loading and preprocessing data
+```{r}
+setwd("C:/Users/Rafael/Documents/GitHub/RepData_PeerAssessment1")
+unzip("activity.zip")
+pa1 <- fread("activity.csv")
+pa1[,date := ymd(date)]
+```
+
 
 
 ## What is mean total number of steps taken per day?
+### What is the distribution of total number of steps taken per day?
+```{r}
+stepsDay <- pa1[,.(steps = sum(steps)),by=date]
+ggplot(data = stepsDay, aes(steps)) + 
+    geom_histogram() +
+    labs(title = "Steps taken per day distribution")
+```
 
+### What is the mean number of steps taken per weekday?
+```{r}
+pa1[,weekDay := wday(date, label = TRUE)]
+meanSteps <- pa1[,.(steps = mean(steps, na.rm = TRUE)), by=weekDay][order(weekDay)]
+ggplot(data = meanSteps, aes(weekDay,steps)) + 
+    geom_col() +
+    labs(title = "Mean Steps by weekday")
+```
+
+### What is the median number of steps taken per weekday?
+```{r}
+
+medianSteps <- pa1[,.(steps = as.numeric(median(steps, na.rm = TRUE))), by=weekDay][order(weekDay)]
+ggplot(data = medianSteps, aes(weekDay,steps)) + 
+    geom_col() +
+    labs(title = "Median Steps by weekday")
+noSteps <- pa1[steps == 0, .N]
+allSteps <- pa1[,.N]
+```
+
+
+Median has value equal 0 for every weekday because the data set has more 0 than actual value when looking grouped by day.
+Total 0 value on data set is `r noSteps`
+Total number of row on data set is `r allSteps`
 
 
 ## What is the average daily activity pattern?
+
+```{r}
+avgStepsIntervals <- pa1[,.(steps = sum(steps, na.rm = TRUE)),by=interval]
+ggplot(data = avgStepsIntervals, aes(interval,steps)) + 
+    geom_line() +
+    labs(title = "Average steps per intervals of 5 min")
+maxSteps <- avgStepsIntervals[,max(steps)]
+maxInterval <- avgStepsIntervals[steps == maxSteps, interval]
+maxTime <- today() + minutes(maxInterval)
+```
+
+The 5-minute interval that has the most steps on average had `r maxSteps` steps in the interval `r maxInterval` that corresponds to `r hour(maxTime)`h `r minute(maxTime)`m of the day.
+
+
 
 
 
 ## Imputing missing values
 
+### Calculating total number of missing values
+
+```{r}
+naSteps <- sum(!complete.cases(pa1))
+```
+
+1 - Total number of missing values `r naSteps`
+
+### Filling missing values. Mean for that weekday in that 5 min interval.
+
+```{r}
+fullPa1 <- pa1[, index := .GRP, by = 1:nrow(pa1)]
+fullPa1$steps <- sapply(fullPa1$index, function (x)
+    ifelse(is.na(fullPa1$steps[fullPa1$index == x])
+           , mean(fullPa1$steps[
+               fullPa1$weekDay == fullPa1$weekDay[fullPa1$index == x] 
+               & fullPa1$interval == fullPa1$interval[fullPa1$index == x]
+               ], na.rm = TRUE)
+           ,fullPa1$steps[fullPa1$index == x]
+    )
+)
+```
+
+### Histogram, mean and Median with filled missing values
+
+```{r}
+stepsDayFull <- fullPa1[,.(steps = sum(steps)),by=date]
+ggplot(data = stepsDayFull, aes(steps)) + 
+    geom_histogram() +
+    labs(title = "Steps taken per day distribution - No missing data")
+```
+
+
+```{r}
+meanStepsFull <- fullPa1[,.(steps = mean(steps, na.rm = TRUE)), by=weekDay][order(weekDay)]
+ggplot(data = meanStepsFull, aes(weekDay,steps)) + 
+    geom_col() +
+    labs(title = "Mean Steps by weekday - No missing data")
+```
+
+```{r}
+medianStepsFull <- fullPa1[,.(steps = median(steps, na.rm = TRUE)), by=weekDay][order(weekDay)]
+ggplot(data = medianStepsFull, aes(weekDay,steps)) + 
+    geom_col() +
+    labs(title = "Median Steps by weekday - No missing data")
+noStepsFull <- fullPa1[steps == 0, .N]
+allStepsFull <- fullPa1[,.N]
+```
+Median has value equal 0 for every weekday because the data set has more 0 than actual value when looking grouped by day.
+Total 0 value on data set is `r noStepsFull`
+Total number of row on data set is `r allStepsFull`
+
+
+### What is the impact of imputing missing data on the estimates of the total daily number of steps?
+
+####Steps by day
+```{r}
+stepsComp <- stepsDay[stepsDayFull, on = "date"]
+setnames(stepsComp, c("date", "steps with NA", "steps filled NA"))
+stepsComp[,Difference := `steps filled NA`-ifelse(is.na(`steps with NA`),0,`steps with NA`)]
+stepsCompDiff <- as.integer(round(stepsComp[,sum(Difference)],0))
+```
+
+The total difference from total steps taken from data with NA against NA filled is `r stepsCompDiff` steps. 
+
+
+
+####Mean steps taken per weekday
+```{r}
+meanComp <- meanSteps[meanStepsFull, on = "weekDay"]
+setnames(meanComp, c("weekDay", "steps with NA", "steps filled NA"))
+meanComp[,Difference := `steps with NA`-`steps filled NA`]
+meanCompDiff <- meanComp[,sum(Difference)]
+```
+
+The total difference from mean steps taken by weekday from data with NA against NA filled is `r meanCompDiff`.
+This means that data has no difference since it was filled with the mean of same dimension.
+
+####Median steps taken per weekday
+```{r}
+medianComp <- medianSteps[medianStepsFull, on = "weekDay"]
+setnames(medianComp, c("weekDay", "steps with NA", "steps filled NA"))
+medianComp[,Difference := `steps with NA`-`steps filled NA`]
+medianCompDiff <- medianComp[,sum(Difference)]
+```
+
+The total difference from median steps taken by weekday from data with NA against NA filled is `r medianCompDiff`.
+This means that data has no difference since it was filled with the median of same dimension.
+
+
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+```{r}
+fullPa1[,typeOfDay := ifelse(wday(date) > 6, "Weekend", "Weekday")]
+fullPa1[,typeOfDay := as.factor(typeOfDay)]
+table(fullPa1[,typeOfDay])
+```
+
+```{r}
+meanFullPa1 <- fullPa1[, .(steps = mean(steps)), by=.(interval, typeOfDay)]
+ggplot(data = meanFullPa1, aes(interval, steps))+
+    geom_line()+
+    facet_wrap(~typeOfDay, ncol=1)
+```
